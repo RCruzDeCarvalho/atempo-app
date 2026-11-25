@@ -12,8 +12,8 @@ android {
         applicationId = "pt.ricardo.atempo"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "0.3"
+        versionCode = 4
+        versionName = "0.4"
     }
 
     // Chave fixa para que cada nova versão instale por cima da anterior

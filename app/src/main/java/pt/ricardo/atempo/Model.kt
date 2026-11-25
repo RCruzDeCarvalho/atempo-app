@@ -198,7 +198,11 @@ object Settings {
     private fun p(c: Context) = c.applicationContext.getSharedPreferences("definicoes", Context.MODE_PRIVATE)
 
     fun icsUrl(c: Context) = p(c).getString("ics", "") ?: ""
-    fun setIcsUrl(c: Context, v: String) = p(c).edit().putString("ics", v.trim()).apply()
+    /** Limpa espaços e quebras de linha que vêm ao copiar, e aceita links webcal://. */
+    fun setIcsUrl(c: Context, v: String) {
+        val clean = v.replace(Regex("\\s"), "").replace(Regex("^webcals?://", RegexOption.IGNORE_CASE), "https://")
+        p(c).edit().putString("ics", clean).apply()
+    }
 
     fun turma(c: Context) = p(c).getString("turma", "J") ?: "J"
     fun setTurma(c: Context, v: String) = p(c).edit().putString("turma", v.trim().uppercase().take(1)).apply()

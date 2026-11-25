@@ -140,7 +140,7 @@ object Moodle {
 
     @Synchronized
     fun sync(c: Context): Result {
-        val url = Settings.icsUrl(c)
+        val url = Settings.icsUrl(c).replace(Regex("\\s"), "")
         if (url.isBlank()) return Result(false, "Falta o link do calendário do Moodle.")
         if (running) return Result(false, "Já está a sincronizar.")
         running = true
@@ -148,7 +148,10 @@ object Moodle {
             val conn = (URL(url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 15_000
                 readTimeout = 30_000
-                setRequestProperty("User-Agent", "ATempo/" + BuildConfig.VERSION_NAME)
+                instanceFollowRedirects = true
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Android) ATempo/" + BuildConfig.VERSION_NAME)
+                setRequestProperty("Accept", "text/calendar, */*")
+                if (this is javax.net.ssl.HttpsURLConnection) sslSocketFactory = Tls.socketFactory
             }
             val code = conn.responseCode
             if (code != 200) {
@@ -166,7 +169,14 @@ object Moodle {
             Settings.setSyncResult(c, true, "")
             return Result(true, if (added > 0) "Moodle actualizado: $added novo${if (added == 1) "" else "s"}." else "Moodle actualizado.", added)
         } catch (e: Exception) {
-            val r = Result(false, "Sem ligação ao Moodle. Volto a tentar mais tarde.")
+            val why = when (e) {
+                is java.net.UnknownHostException -> "Sem internet (ou o endereço do Moodle está errado)."
+                is java.net.SocketTimeoutException -> "O Moodle demorou demasiado a responder."
+                is javax.net.ssl.SSLException -> "Problema com o certificado de segurança do Moodle."
+                is java.net.MalformedURLException -> "O link não parece um endereço válido."
+                else -> "Sem ligação ao Moodle."
+            }
+            val r = Result(false, "$why Volto a tentar mais tarde.\n(${e.javaClass.simpleName}: ${e.message?.take(140) ?: "sem detalhes"})")
             Settings.setSyncResult(c, false, r.message)
             return r
         } finally {
