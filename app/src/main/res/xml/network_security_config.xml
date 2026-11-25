@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- O Moodle do IPL usa certificados HARICA (rede GÉANT). A raiz "HARICA TLS RSA Root CA 2021"
+     só existe nas versões mais recentes do Android, por isso vai incluída na app, apenas para ipl.pt.
+     Impressão digital SHA-256: D9:5D:0E:8E:DA:79:52:5B:F9:BE:B1:1B:14:D2:10:0D:32:94:98:5F:0C:62:D9:FA:BD:9C:D9:99:EC:CB:7B:1D -->
+<network-security-config>
+    <domain-config>
+        <domain includeSubdomains="true">ipl.pt</domain>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/harica_tls_rsa_root_2021" />
+        </trust-anchors>
+    </domain-config>
+</network-security-config>
