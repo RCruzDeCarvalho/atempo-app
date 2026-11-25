@@ -97,10 +97,13 @@ private fun App(incoming: MutableState<Intent?>) {
         }
     }
 
+    var update by remember { mutableStateOf(Updater.pending(c)) }
+
     LifecycleResumeEffect(Unit) {
         Store.invalidate()
         refresh()
         syncNow(force = false, quiet = true)
+        scope.launch { update = withContext(Dispatchers.IO) { Updater.check(c) } }
         onPauseOrDispose { }
     }
 
@@ -179,12 +182,18 @@ private fun App(incoming: MutableState<Intent?>) {
         ) { pad ->
             Box(Modifier.padding(pad)) {
                 when (tab) {
-                    Tab.HOJE -> TodayScreen(all, slots, actions, syncing, onGoSettings = { tab = Tab.DEFINICOES }, onSync = { syncNow(true, false) })
+                    Tab.HOJE -> TodayScreen(all, slots, actions, syncing, update, onGoSettings = { tab = Tab.DEFINICOES }, onSync = { syncNow(true, false) })
                     Tab.PRAZOS -> DeadlinesScreen(all, actions, onUndo = { id ->
                         Store.edit(c, id) { it.copy(doneAt = 0L, droppedAt = 0L) }; refresh()
                     })
                     Tab.HORARIO -> ScheduleScreen(slots, onChange = { refresh() })
-                    Tab.DEFINICOES -> SettingsScreen(syncing, onSync = { syncNow(true, false) }, onChange = { refresh() })
+                    Tab.DEFINICOES -> SettingsScreen(syncing, update, onSync = { syncNow(true, false) }, onChange = { refresh() },
+                        onCheckUpdate = {
+                            scope.launch {
+                                update = withContext(Dispatchers.IO) { Updater.check(c, force = true) }
+                                if (update == null) toast("Já tens a versão mais recente ✨")
+                            }
+                        })
                 }
             }
         }

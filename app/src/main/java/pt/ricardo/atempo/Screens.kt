@@ -62,6 +62,7 @@ fun TodayScreen(
     slots: List<Slot>,
     actions: DeadlineActions,
     syncing: Boolean,
+    update: Updater.Update?,
     onGoSettings: () -> Unit,
     onSync: () -> Unit
 ) {
@@ -83,6 +84,14 @@ fun TodayScreen(
 
     LazyColumn(contentPadding = screenPad, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { Hero(Settings.name(c), t, late.size, week.size + planned.size, active.firstOrNull { !it.isLate(n) && !it.isExam }, examToday) }
+
+        if (update != null) item {
+            NoteCard(
+                "✨ Versão nova: ${update.versionName}",
+                "Descarrega e instala por cima desta. Os teus trabalhos e o horário ficam.",
+                "Descarregar"
+            ) { Updater.download(c) }
+        }
 
         if (Settings.icsUrl(c).isBlank()) item {
             NoteCard(
@@ -387,7 +396,7 @@ fun ScheduleScreen(slots: List<Slot>, onChange: () -> Unit) {
 // =====================================================================
 
 @Composable
-fun SettingsScreen(syncing: Boolean, onSync: () -> Unit, onChange: () -> Unit) {
+fun SettingsScreen(syncing: Boolean, update: Updater.Update?, onSync: () -> Unit, onChange: () -> Unit, onCheckUpdate: () -> Unit) {
     val c = LocalContext.current
     val cs = MaterialTheme.colorScheme
     var url by remember { mutableStateOf(Settings.icsUrl(c)) }
@@ -451,6 +460,18 @@ fun SettingsScreen(syncing: Boolean, onSync: () -> Unit, onChange: () -> Unit) {
         )
         Spacer(Modifier.height(8.dp))
         OutlinedButton(onClick = { Reminders.test(c) }) { Text("Experimentar uma notificação") }
+
+        SectionTitle("Actualizações")
+        Text(
+            if (update != null) "Há uma versão nova: ${update.versionName}. Tens a ${BuildConfig.VERSION_NAME}."
+            else "Tens a versão ${BuildConfig.VERSION_NAME}. A app vê sozinha se há novidades e avisa.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (update != null) FilledTonalButton(onClick = { Updater.download(c) }) { Text("Descarregar") }
+            OutlinedButton(onClick = onCheckUpdate) { Text("Procurar agora") }
+        }
 
         Spacer(Modifier.height(28.dp))
         Text("A Tempo ${BuildConfig.VERSION_NAME} · feita pelo pai, com carinho 🦊", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)

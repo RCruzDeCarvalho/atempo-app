@@ -26,6 +26,7 @@ class ReminderWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, param
     override fun doWork(): Result {
         Moodle.syncIfStale(applicationContext)
         Reminders.run(applicationContext)
+        Updater.notifyIfNew(applicationContext)
         return Result.success()
     }
 
