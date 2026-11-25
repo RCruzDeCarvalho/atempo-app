@@ -136,6 +136,10 @@ fun DeadlineCard(
             Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = 10.dp).weight(1f)) {
                 Row(verticalAlignment = Alignment.Top) {
                     Column(Modifier.weight(1f)) {
+                        if (d.isExam) {
+                            Text("📝 ${d.kindLabel.uppercase()}", style = MaterialTheme.typography.labelMedium, color = Palette.Coral, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.height(2.dp))
+                        }
                         Text(d.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Spacer(Modifier.height(4.dp))
                         CourseTag(d.course)
@@ -156,11 +160,12 @@ fun DeadlineCard(
                 }
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilledTonalButton(onClick = onDone, shape = RoundedCornerShape(14.dp)) { Text("✓ Entregue") }
+                    if (!d.isExam) FilledTonalButton(onClick = onDone, shape = RoundedCornerShape(14.dp)) { Text("✓ Entregue") }
+                    val verb = if (d.isExam) "Estudo hoje" else "Faço hoje"
                     FilterChip(
                         selected = d.plannedToday(),
                         onClick = onPlan,
-                        label = { Text(if (d.plannedToday()) "Faço hoje ✨" else "Faço hoje") }
+                        label = { Text(if (d.plannedToday()) "$verb ✨" else verb) }
                     )
                     Spacer(Modifier.weight(1f))
                     if (!d.fromMoodle) Text("à mão", style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant)
@@ -217,7 +222,7 @@ fun DeadlineDialog(
                 }
                 if (d.doneAt > 0) {
                     Spacer(Modifier.height(8.dp))
-                    Text("✓ Entregue a ${Fmt.dayShort(Instant.ofEpochMilli(d.doneAt).atZone(zone).toLocalDate())}", color = Palette.Ok, fontWeight = FontWeight.SemiBold)
+                    Text((if (d.isExam) "✓ Feito a " else "✓ Entregue a ") + "${Fmt.dayShort(Instant.ofEpochMilli(d.doneAt).atZone(zone).toLocalDate())}", color = Palette.Ok, fontWeight = FontWeight.SemiBold)
                 }
                 if (d.description.isNotBlank()) {
                     Spacer(Modifier.height(12.dp))
@@ -230,15 +235,15 @@ fun DeadlineDialog(
                 }
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (d.active) TextButton(onClick = onPlan) { Text(if (d.plannedToday()) "Hoje não" else "Faço hoje") }
+                    if (d.active) TextButton(onClick = onPlan) { Text(if (d.plannedToday()) "Hoje não" else if (d.isExam) "Estudo hoje" else "Faço hoje") }
                     if (d.active && d.fromMoodle) TextButton(onClick = onDrop) { Text("Não é para mim", color = cs.onSurfaceVariant) }
                     if (!d.fromMoodle) TextButton(onClick = onDelete) { Text("Apagar", color = cs.error) }
                 }
             }
         },
         confirmButton = {
-            if (d.active) FilledTonalButton(onClick = onDone) { Text("✓ Entregue") }
-            else TextButton(onClick = onUndo) { Text("Voltar a pôr na lista") }
+            if (d.active) FilledTonalButton(onClick = onDone) { Text(if (d.isExam) "✓ Já fiz" else "✓ Entregue") }
+            else if (!d.examOver) TextButton(onClick = onUndo) { Text("Voltar a pôr na lista") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Fechar") } }
     )
@@ -249,34 +254,68 @@ fun DeadlineDialog(
 @Composable
 fun AddDeadlineDialog(courses: List<String>, onDismiss: () -> Unit, onSave: (Deadline) -> Unit) {
     val c = LocalContext.current
+    val slots = remember { Store.slots(c) }
+    var kind by remember { mutableStateOf(KIND_WORK) }
+    var place by remember { mutableStateOf("") }
     var title by remember { mutableStateOf("") }
     var course by remember { mutableStateOf("") }
     var date by remember { mutableStateOf(today().plusDays(7)) }
     var minute by remember { mutableIntStateOf(23 * 60 + 59) }
     var desc by remember { mutableStateOf("") }
+    var timeTouched by remember { mutableStateOf(false) }
+    val exam = kind != KIND_WORK
+
+    // Num teste, a hora por defeito é a da aula dessa cadeira nesse dia
+    fun guessTime() {
+        if (!exam || timeTouched) return
+        val s = slots.firstOrNull { it.day == date.dayOfWeek.value && course.isNotBlank() && it.title.startsWith(course, true) }
+        minute = s?.start ?: (10 * 60)
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Novo trabalho") },
+        title = { Text(if (exam) "Novo ${if (kind == KIND_TEST) "teste" else "exame"}" else "Novo trabalho") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text("Para o que foi dito na aula ou está numa página do Moodle sem data no calendário.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(KIND_WORK to "Trabalho", KIND_TEST to "Teste", KIND_EXAM to "Exame").forEach { (k, l) ->
+                        FilterChip(selected = kind == k, onClick = {
+                            kind = k
+                            if (k == KIND_WORK) { if (!timeTouched) minute = 23 * 60 + 59 } else guessTime()
+                        }, label = { Text(l) })
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    if (exam) "Os avisos começam duas semanas antes e lembram-te de ir estudando."
+                    else "Para o que foi dito na aula ou está numa página do Moodle sem data no calendário.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 Spacer(Modifier.height(10.dp))
-                OutlinedTextField(title, { title = it }, label = { Text("O que é") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(course, { course = it }, label = { Text("Cadeira") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(course, { course = it; guessTime() }, label = { Text("Cadeira") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 6.dp)) {
                     items(courses) { k ->
-                        SuggestionChip(onClick = { course = k }, label = { Text(k, maxLines = 1) })
+                        SuggestionChip(onClick = { course = k; guessTime() }, label = { Text(k, maxLines = 1) })
                     }
+                }
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    title, { title = it },
+                    label = { Text(if (exam) "Nome (opcional)" else "O que é") },
+                    placeholder = { if (exam && course.isNotBlank()) Text("${if (kind == KIND_TEST) "Teste" else "Exame"} de $course") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth()
+                )
+                if (exam) {
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(place, { place = it }, label = { Text("Sala (opcional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 }
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = {
-                        DatePickerDialog(c, { _, y, m, dd -> date = LocalDate.of(y, m + 1, dd) }, date.year, date.monthValue - 1, date.dayOfMonth).show()
+                        DatePickerDialog(c, { _, y, m, dd -> date = LocalDate.of(y, m + 1, dd); guessTime() }, date.year, date.monthValue - 1, date.dayOfMonth).show()
                     }) { Text("📅 " + Fmt.dayShort(date)) }
                     OutlinedButton(onClick = {
-                        TimePickerDialog(c, { _, h, mi -> minute = h * 60 + mi }, minute / 60, minute % 60, true).show()
+                        TimePickerDialog(c, { _, h, mi -> minute = h * 60 + mi; timeTouched = true }, minute / 60, minute % 60, true).show()
                     }) { Text("🕒 " + hm(minute)) }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -284,9 +323,10 @@ fun AddDeadlineDialog(courses: List<String>, onDismiss: () -> Unit, onSave: (Dea
             }
         },
         confirmButton = {
-            FilledTonalButton(enabled = title.isNotBlank(), onClick = {
+            FilledTonalButton(enabled = title.isNotBlank() || (exam && course.isNotBlank()), onClick = {
                 val due = date.atTime(LocalTime.of(minute / 60, minute % 60)).atZone(zone).toInstant().toEpochMilli()
-                onSave(Deadline(title = title.trim(), course = course.trim(), dueMs = due, description = desc.trim()))
+                val name = title.trim().ifBlank { "${if (kind == KIND_TEST) "Teste" else "Exame"} de ${course.trim()}" }
+                onSave(Deadline(title = name, course = course.trim(), dueMs = due, description = desc.trim(), kind = kind, place = place.trim()))
             }) { Text("Guardar") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }

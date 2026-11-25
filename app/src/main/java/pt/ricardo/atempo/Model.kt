@@ -22,6 +22,10 @@ fun granted(c: Context, perm: String) =
     ContextCompat.checkSelfPermission(c, perm) == PackageManager.PERMISSION_GRANTED
 
 /** Um trabalho com prazo, vindo do Moodle ou acrescentado à mão. */
+const val KIND_WORK = "trabalho"
+const val KIND_TEST = "teste"
+const val KIND_EXAM = "exame"
+
 data class Deadline(
     val id: String = "manual:" + UUID.randomUUID().toString(),
     val title: String,
@@ -34,14 +38,22 @@ data class Deadline(
     val droppedAt: Long = 0L,
     val goneFromMoodle: Boolean = false,  // desapareceu do Moodle antes do prazo
     val planDay: String = "",             // dia em que ela escolheu fazê-lo
-    val created: Long = System.currentTimeMillis()
+    val created: Long = System.currentTimeMillis(),
+    val kind: String = KIND_WORK,         // trabalho, teste ou exame
+    val place: String = ""                // sala, para testes e exames
 ) {
-    val active get() = doneAt == 0L && droppedAt == 0L && !goneFromMoodle
+    val isExam get() = kind != KIND_WORK
+    val kindLabel get() = when (kind) { KIND_TEST -> "Teste"; KIND_EXAM -> "Exame"; else -> "Trabalho" }
+
+    /** Um teste que já passou sai da lista sozinho (não fica "atrasado"). */
+    val examOver get() = isExam && System.currentTimeMillis() > dueMs + 3 * 3_600_000L
+
+    val active get() = doneAt == 0L && droppedAt == 0L && !goneFromMoodle && !examOver
 
     val due: ZonedDateTime get() = Instant.ofEpochMilli(dueMs).atZone(zone)
 
     /** Prazos à meia-noite acabam, na prática, na noite anterior. */
-    val midnightTrap: Boolean get() = due.hour == 0 && due.minute == 0
+    val midnightTrap: Boolean get() = !isExam && due.hour == 0 && due.minute == 0
 
     /** O momento real em que deixa de dar para entregar. */
     val effective: ZonedDateTime get() = if (midnightTrap) due.minusMinutes(1) else due
@@ -52,7 +64,7 @@ data class Deadline(
 
     fun minutesLeft(n: ZonedDateTime = now()): Long = Duration.between(n, effective).toMinutes()
 
-    fun isLate(n: ZonedDateTime = now()) = active && minutesLeft(n) < 0
+    fun isLate(n: ZonedDateTime = now()) = active && !isExam && minutesLeft(n) < 0
 
     fun plannedToday() = planDay == today().toString()
 
@@ -98,6 +110,7 @@ object Store {
                 put("desc", d.description); put("link", d.link); put("moodle", d.fromMoodle)
                 put("done", d.doneAt); put("dropped", d.droppedAt); put("gone", d.goneFromMoodle)
                 put("plan", d.planDay); put("created", d.created)
+                put("kind", d.kind); put("place", d.place)
             })
         }
         prefs(c).edit().putString("prazos", a.toString()).commit()
@@ -119,7 +132,8 @@ object Store {
                     dueMs = o.getLong("due"), description = o.optString("desc"), link = o.optString("link"),
                     fromMoodle = o.optBoolean("moodle"), doneAt = o.optLong("done"), droppedAt = o.optLong("dropped"),
                     goneFromMoodle = o.optBoolean("gone"), planDay = o.optString("plan"),
-                    created = o.optLong("created", System.currentTimeMillis())
+                    created = o.optLong("created", System.currentTimeMillis()),
+                    kind = o.optString("kind", KIND_WORK).ifBlank { KIND_WORK }, place = o.optString("place")
                 )
             }
         } catch (_: Exception) { emptyList() }

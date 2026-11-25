@@ -94,6 +94,7 @@ object Reminders {
         list.forEach { d ->
             val days = d.daysLeft(n.toLocalDate())
             val mins = d.minutesLeft(n)
+            if (d.isExam) { examStep(c, d, days, mins, h); return@forEach }
             when {
                 mins < 0 -> Unit
                 days == 0L && mins <= 60 -> once(c, "${d.id}:1h") { due(c, d, "⏰ Falta menos de 1 hora", urgent = true) }
@@ -111,6 +112,40 @@ object Reminders {
         if (friday && h >= 19) once(c, "sexta-noite:$day") { fridayClose(c, list) }
     }
 
+    /** Para testes, os avisos começam mais cedo e falam de estudar, não de entregar. */
+    private fun examStep(c: Context, d: Deadline, days: Long, mins: Long, h: Int) {
+        val k = d.kindLabel.lowercase()
+        when {
+            mins < 0 -> Unit
+            days == 0L && mins <= 120 -> once(c, "${d.id}:2h") {
+                exam(c, d, "📝 ${d.kindLabel} daqui a pouco", "Às ${Fmt.time(d.effective)}. Respira fundo, tu sabes isto.", urgent = true)
+            }
+            days == 1L && h >= 18 -> once(c, "${d.id}:1d") {
+                exam(c, d, "🌙 Amanhã é o $k", "Prepara o material e a mochila hoje, e dorme bem. ${Fmt.due(d).replaceFirstChar { it.uppercase() }}.", urgent = false)
+            }
+            days in 2L..3L -> once(c, "${d.id}:3d") {
+                exam(c, d, "📚 Faltam $days dias para o $k", "A partir de hoje, estudo a sério. Um bocadinho por dia rende mais do que tudo na véspera.", urgent = false)
+            }
+            days in 4L..7L -> once(c, "${d.id}:7d") {
+                exam(c, d, "📝 $days dias para o $k", "Boa altura para fazer um resumo da matéria, à tua maneira (mapas, esquemas, desenhos).", urgent = false)
+            }
+            days in 8L..14L -> once(c, "${d.id}:14d") {
+                exam(c, d, "📝 ${d.kindLabel} daqui a duas semanas", "Começa a rever aos poucos. Vinte minutos chegam.", urgent = false)
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun exam(c: Context, d: Deadline, title: String, body: String, urgent: Boolean) {
+        val id = 1000 + (d.id.hashCode() and 0xFFFF)
+        val text = "${d.title} · ${d.course}\n$body"
+        val b = builder(c, if (urgent) CH_URGENT else CH_DUE, title, text, openApp(c, id, "abrir" to d.id))
+        if (!urgent && !d.plannedToday()) b.addAction(0, "Estudo hoje", broadcast(c, id + 2, ActionReceiver.PLAN, d.id))
+        if (urgent) b.setPriority(NotificationCompat.PRIORITY_HIGH)
+        channels(c)
+        NotificationManagerCompat.from(c).notify(id, b.build())
+    }
+
     // ---------- textos ----------
 
     private fun line(d: Deadline, n: ZonedDateTime) = "• ${d.title} · ${d.course.ifBlank { "—" }} · ${Fmt.countdown(d, n)}"
@@ -118,11 +153,15 @@ object Reminders {
     @SuppressLint("MissingPermission")
     fun morning(c: Context, list: List<Deadline>, n: ZonedDateTime) {
         val late = list.filter { it.isLate(n) }
-        val todayL = list.filter { !it.isLate(n) && it.daysLeft(n.toLocalDate()) == 0L }
-        val week = list.filter { !it.isLate(n) && it.daysLeft(n.toLocalDate()) in 1L..7L }
-        if (late.isEmpty() && todayL.isEmpty() && week.isEmpty()) return
+        val work = list.filter { !it.isExam }
+        val todayL = work.filter { !it.isLate(n) && it.daysLeft(n.toLocalDate()) == 0L }
+        val week = work.filter { !it.isLate(n) && it.daysLeft(n.toLocalDate()) in 1L..7L }
+        val exams = list.filter { it.isExam && it.daysLeft(n.toLocalDate()) <= 7L }
+        if (late.isEmpty() && todayL.isEmpty() && week.isEmpty() && exams.isEmpty()) return
+        val examToday = exams.firstOrNull { it.daysLeft(n.toLocalDate()) == 0L }
 
         val title = when {
+            examToday != null -> "📝 Hoje: ${examToday.title}, às ${Fmt.time(examToday.effective)}"
             late.isNotEmpty() -> "🔴 ${Fmt.plural(late.size, "trabalho em atraso", "trabalhos em atraso")}"
             todayL.isNotEmpty() -> "📌 Hoje entregas: ${todayL.first().title}"
             else -> "☀️ Esta semana: ${Fmt.plural(week.size, "entrega", "entregas")}"
@@ -130,6 +169,7 @@ object Reminders {
         val lines = mutableListOf<String>()
         if (late.isNotEmpty()) { lines += "Em atraso (ainda dá para entregar?):"; late.forEach { lines += line(it, n) } }
         if (todayL.isNotEmpty()) { lines += "Hoje:"; todayL.forEach { lines += line(it, n) } }
+        if (exams.isNotEmpty()) { lines += "Testes e exames:"; exams.forEach { lines += line(it, n) } }
         if (week.isNotEmpty()) { lines += "Próximos 7 dias:"; week.take(5).forEach { lines += line(it, n) } }
 
         val slots = Store.slots(c)

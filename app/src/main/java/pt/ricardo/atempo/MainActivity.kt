@@ -127,7 +127,7 @@ private fun App(incoming: MutableState<Intent?>) {
         Reminders.cancel(c, id)
         confettiTint = d?.let { Palette.course(it.course) }
         confetti++
-        toast(cheers.random())
+        toast(if (d?.isExam == true) "Teste feito! Agora descansa 📝" else cheers.random())
         refresh()
     }
 

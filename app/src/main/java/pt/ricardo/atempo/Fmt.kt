@@ -21,9 +21,11 @@ object Fmt {
     fun time(z: ZonedDateTime) = "%02d:%02d".format(z.hour, z.minute)
 
     /** "sex 27 nov, 23:59", ou "até ao fim de qui 7 jan" quando o Moodle diz meia-noite. */
-    fun due(d: Deadline): String =
-        if (d.midnightTrap) "até ao fim de ${dayShort(d.effectiveDate)}"
-        else "${dayShort(d.effectiveDate)}, ${time(d.effective)}"
+    fun due(d: Deadline): String = when {
+        d.midnightTrap -> "até ao fim de ${dayShort(d.effectiveDate)}"
+        d.isExam -> "${dayShort(d.effectiveDate)}, às ${time(d.effective)}" + if (d.place.isNotBlank()) " · ${d.place}" else ""
+        else -> "${dayShort(d.effectiveDate)}, ${time(d.effective)}"
+    }
 
     /** A contagem decrescente, sempre a partir do momento real do prazo. */
     fun countdown(d: Deadline, n: ZonedDateTime = now()): String {
@@ -37,6 +39,7 @@ object Fmt {
             }
         }
         val days = d.daysLeft(n.toLocalDate())
+        if (d.isExam && days <= 1L) return (if (days == 0L) "hoje" else "amanhã") + " às ${time(d.effective)}"
         return when {
             days == 0L && mins < 60 -> "faltam $mins min"
             days == 0L -> "hoje · faltam ${mins / 60} h"

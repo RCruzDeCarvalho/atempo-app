@@ -72,15 +72,17 @@ fun TodayScreen(
     val active = all.filter { it.active }.sortedBy { it.dueMs }
     val late = active.filter { it.isLate(n) }
     val planned = active.filter { !it.isLate(n) && it.plannedToday() }
-    val week = active.filter { !it.isLate(n) && !it.plannedToday() && it.daysLeft(t) <= 7 }
-    val leftovers = active.filter { it.leftover() && !it.plannedToday() && it.daysLeft(t) > 7 }
+    val exams = active.filter { it.isExam && !it.plannedToday() && it.daysLeft(t) <= 21 }
+    val week = active.filter { !it.isExam && !it.isLate(n) && !it.plannedToday() && it.daysLeft(t) <= 7 }
+    val leftovers = active.filter { !it.isExam && it.leftover() && !it.plannedToday() && it.daysLeft(t) > 7 }
+    val examToday = active.firstOrNull { it.isExam && it.daysLeft(t) == 0L }
     val friday = n.dayOfWeek == DayOfWeek.FRIDAY
     val todaySlots = slots.filter { it.day == n.dayOfWeek.value }
     val minuteNow = n.hour * 60 + n.minute
     val windows = FreeTime.windows(slots, t).filter { it.end > minuteNow }
 
     LazyColumn(contentPadding = screenPad, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        item { Hero(Settings.name(c), t, late.size, week.size + planned.size, active.firstOrNull { !it.isLate(n) }) }
+        item { Hero(Settings.name(c), t, late.size, week.size + planned.size, active.firstOrNull { !it.isLate(n) && !it.isExam }, examToday) }
 
         if (Settings.icsUrl(c).isBlank()) item {
             NoteCard(
@@ -109,6 +111,11 @@ fun TodayScreen(
             items(leftovers, key = { "l" + it.id }) { DeadlineCard(it, { actions.onOpen(it.id) }, { actions.onDone(it.id) }, { actions.onPlan(it.id) }) }
         }
 
+        if (exams.isNotEmpty()) {
+            item { SectionTitle("Testes e exames 📝", hint = "Nas próximas 3 semanas. Estudar um bocadinho por dia rende mais.") }
+            items(exams, key = { "e" + it.id }) { DeadlineCard(it, { actions.onOpen(it.id) }, { actions.onDone(it.id) }, { actions.onPlan(it.id) }) }
+        }
+
         item { SectionTitle("Próximos 7 dias", hint = if (week.isEmpty()) "Nada com prazo esta semana. Respira 🌿" else null) }
         items(week, key = { "w" + it.id }) { DeadlineCard(it, { actions.onOpen(it.id) }, { actions.onDone(it.id) }, { actions.onPlan(it.id) }) }
 
@@ -128,8 +135,9 @@ fun TodayScreen(
 }
 
 @Composable
-private fun Hero(name: String, t: java.time.LocalDate, late: Int, soon: Int, next: Deadline?) {
+private fun Hero(name: String, t: java.time.LocalDate, late: Int, soon: Int, next: Deadline?, examToday: Deadline?) {
     val line = when {
+        examToday != null -> "Hoje tens ${examToday.title}, às ${Fmt.time(examToday.effective)}. Tu consegues 💪"
         late > 0 -> "Tens ${Fmt.plural(late, "trabalho em atraso", "trabalhos em atraso")}. Vamos tratar disso primeiro."
         next != null && next.daysLeft() == 0L -> "Hoje entregas «${next.title}»."
         soon > 0 -> "Esta semana: ${Fmt.plural(soon, "entrega", "entregas")}. Vais a tempo."
@@ -240,9 +248,10 @@ fun DeadlinesScreen(all: List<Deadline>, actions: DeadlineActions, onUndo: (Stri
     val n = now()
     val active = all.filter { it.active }.sortedBy { it.dueMs }
     val late = active.filter { it.isLate(n) }
-    val week = active.filter { !it.isLate(n) && it.daysLeft() <= 7 }
-    val later = active.filter { it.daysLeft() > 7 }
-    val finished = all.filter { !it.active && !it.goneFromMoodle }.sortedByDescending { maxOf(it.doneAt, it.droppedAt) }
+    val exams = active.filter { it.isExam }
+    val week = active.filter { !it.isExam && !it.isLate(n) && it.daysLeft() <= 7 }
+    val later = active.filter { !it.isExam && it.daysLeft() > 7 }
+    val finished = all.filter { !it.active && !it.goneFromMoodle }.sortedByDescending { it.finishedAt() }
     var showDone by rememberSaveable { mutableStateOf(false) }
 
     LazyColumn(contentPadding = screenPad, verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -257,6 +266,10 @@ fun DeadlinesScreen(all: List<Deadline>, actions: DeadlineActions, onUndo: (Stri
             item { SectionTitle("Em atraso", Palette.Late) }
             items(late, key = { it.id }) { DeadlineCard(it, { actions.onOpen(it.id) }, { actions.onDone(it.id) }, { actions.onPlan(it.id) }) }
         }
+        if (exams.isNotEmpty()) {
+            item { SectionTitle("Testes e exames 📝") }
+            items(exams, key = { it.id }) { DeadlineCard(it, { actions.onOpen(it.id) }, { actions.onDone(it.id) }, { actions.onPlan(it.id) }) }
+        }
         if (week.isNotEmpty()) {
             item { SectionTitle("Esta semana") }
             items(week, key = { it.id }) { DeadlineCard(it, { actions.onOpen(it.id) }, { actions.onDone(it.id) }, { actions.onPlan(it.id) }) }
@@ -268,7 +281,7 @@ fun DeadlinesScreen(all: List<Deadline>, actions: DeadlineActions, onUndo: (Stri
         if (finished.isNotEmpty()) {
             item {
                 TextButton(onClick = { showDone = !showDone }) {
-                    Text((if (showDone) "Esconder" else "Ver") + " entregues (${finished.size})")
+                    Text((if (showDone) "Esconder" else "Ver") + " o que já passou (${finished.size})")
                 }
             }
             if (showDone) items(finished, key = { "f" + it.id }) { d -> FinishedRow(d, onOpen = { actions.onOpen(d.id) }, onUndo = { onUndo(d.id) }) }
@@ -292,14 +305,19 @@ private fun FinishedRow(d: Deadline, onOpen: () -> Unit, onUndo: () -> Unit) {
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(d.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val whenTxt = Fmt.dayShort(Instant.ofEpochMilli(maxOf(d.doneAt, d.droppedAt)).atZone(zone).toLocalDate())
+            val whenTxt = Fmt.dayShort(Instant.ofEpochMilli(d.finishedAt()).atZone(zone).toLocalDate())
+            val ok = d.doneAt > 0 || (d.examOver && d.droppedAt == 0L)
             Text(
-                (if (d.doneAt > 0) "✓ entregue a " else "tirado da lista a ") + whenTxt,
+                when {
+                    d.isExam && ok -> "📝 feito a "
+                    d.doneAt > 0 -> "✓ entregue a "
+                    else -> "tirado da lista a "
+                } + whenTxt,
                 style = MaterialTheme.typography.bodySmall,
-                color = if (d.doneAt > 0) Palette.Ok else cs.onSurfaceVariant
+                color = if (ok) Palette.Ok else cs.onSurfaceVariant
             )
         }
-        TextButton(onClick = onUndo) { Text("Desfazer") }
+        if (!d.examOver) TextButton(onClick = onUndo) { Text("Desfazer") }
     }
 }
 
@@ -428,7 +446,7 @@ fun SettingsScreen(syncing: Boolean, onSync: () -> Unit, onChange: () -> Unit) {
         HourStepper("Plano de sexta-feira", friday, 7, 13) { friday = it; Settings.setFridayHour(c, it) }
         Spacer(Modifier.height(8.dp))
         Text(
-            "Cada trabalho avisa uma semana antes, dois dias antes ao fim da tarde, e no próprio dia seis, três e uma hora antes. À sexta há o plano de manhã, um toque às 15h e o fecho às 19h.",
+            "Cada trabalho avisa uma semana antes, dois dias antes ao fim da tarde, e no próprio dia seis, três e uma hora antes. Os testes e exames avisam duas semanas, uma semana e três dias antes, na véspera ao fim da tarde e duas horas antes. À sexta há o plano de manhã, um toque às 15h e o fecho às 19h.",
             style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant
         )
         Spacer(Modifier.height(8.dp))
@@ -439,3 +457,6 @@ fun SettingsScreen(syncing: Boolean, onSync: () -> Unit, onChange: () -> Unit) {
         Spacer(Modifier.height(100.dp))
     }
 }
+
+/** Quando saiu da lista: entregue, tirado, ou (num teste) o próprio dia do teste. */
+private fun Deadline.finishedAt(): Long = maxOf(doneAt, droppedAt).takeIf { it > 0 } ?: dueMs
